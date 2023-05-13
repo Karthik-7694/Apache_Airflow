@@ -1,0 +1,108 @@
+# Step 1 : Loading the necessary Libraries
+
+import os
+from datetime import datetime
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+from airflow import DAG
+from airflow.operators.python_operator import PythonOperator
+from airflow.operators.email_operator import EmailOperator
+from datetime import timedelta
+
+
+
+# Step 2: Define default_args dictionary to specify default parameters of the DAG
+
+default_args = {
+    'owner': 'airflow',
+    'start_date': datetime(2023, 4, 17),
+    'depends_on_past': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+
+# Step 3: Define output_path as a global variable
+output_path = 'Desktop/Apache_Airflow/reliance_digital_data.csv'
+
+
+
+
+# Step 4: Instantiate DAG object with default_args
+dag = DAG(
+    'reliance_digital_scraper',
+    default_args=default_args,
+    description='DAG to scrape data from Reliance Digital website',
+    schedule_interval='@daily',
+)
+
+
+# List of URLs
+urls = [
+    'https://www.reliancedigital.in/kelvinator-1-ton-5-star-inverter-split-ac-kas-x12520b/p/581026677','https://www.reliancedigital.in/kelvinator-1-ton-3-star-k600-series-kas-x12310b-inverter-split-ac-with-blue-fin-coating/p/581110084'
+    'https://www.reliancedigital.in/lg-1-5-ton-5-star-wifi-6-in-1-convertible-inverter-split-ac-rs-q19fwze-100-percent-copper-ai-plus-dual-inverter-compressor-4-way-swing-anti-corrosive-ocean-black-protection-2023-launch-/p/581110285',
+    'https://www.reliancedigital.in/lg-1-5-ton-5-star-wifi-6-in-1-convertible-inverter-split-ac-rs-q20hwze-100-percent-copper-ai-plus-dual-inverter-compressor-4-way-swing-anti-corrosive-ocean-black-protection-2023-launch-/p/581110287',
+    'https://www.reliancedigital.in/lg-1-5-ton-3-star-wifi-4-in-1-convertible-inverter-window-ac-pw-q18wwxa-dual-inverter-compressor-anti-corrosive-ocean-black-protection-2023-launch-/p/493672594',
+    'https://www.reliancedigital.in/lg-1-5-ton-5-star-6-in-1-convertible-inverter-split-ac-rs-q19hnze-ai-viraat-mode-4-way-swing-100-percent-copper-2023-launch-/p/581110387',
+    'https://www.reliancedigital.in/lg-1-5-ton-5-star-6-in-1-convertible-inverter-split-ac-rs-q19enze-ai-viraat-mode-4-way-swing-100-percent-copper-2023-launch-/p/581110389',
+    'https://www.reliancedigital.in/haier-1-ton-3-star-split-ac-hsu13t-tqs3be-fs-54-degree-c-cooling-at-extreme-temperature-super-anti-corrosion-100-percent-copper-free-standard-installation-2023-launch-/p/581110346',
+    'https://www.reliancedigital.in/carrier-2-ton-5-star-6-in-1-convertible-inverter-split-ac-cai24dh5r32f0-100-percent-copper-pm-2-5-filter-flexicool-hydrophilic-fins-2023-launch-/p/581110358',
+    'https://www.reliancedigital.in/carrier-1-5-ton-5-star-6-in-1-convertible-smart-inverter-split-ac-cai18in5r32w0-wifi-100-copper-pm-2-5-filter-flexicool-hydrophilic-fins-2023-launch-/p/581110359',
+    'https://www.reliancedigital.in/lg-1-5-ton-5-star-wifi-6-in-1-convertible-inverter-split-ac-rs-q19mwze-100-percent-copper-ai-plus-dual-inverter-compressor-4-way-swing-anti-corrosive-ocean-black-protection-2023-launch-/p/581110286'
+]
+
+def scrape_reliance_digital_data():
+    # Initialize empty lists to store extracted data
+    prices = []
+    product_descriptions = []
+
+    # Loop through the URLs
+    for url in urls:
+        # Send a GET request to the webpage
+        response = requests.get(url)
+
+        # Parse the HTML content
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        # Extract text content of the "price" and "product description" elements
+        price_element = soup.select_one('div#root > main > div:nth-of-type(2) > div > section > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2) > div > ul > li > span > span:nth-of-type(2)')
+        product_description_element = soup.select_one('div#root > main > div:nth-of-type(2) > div > section > div:nth-of-type(2) > div > h1')
+
+        # Extract text from elements or set to None if element not found
+        price = price_element.text if price_element else None
+        product_description = product_description_element.text if product_description_element else None
+
+        # Append extracted data to respective lists
+        prices.append(price)
+        product_descriptions.append(product_description)
+
+    # Create a dataframe with extracted data
+    df = pd.DataFrame({'price': prices, 'product_description': product_descriptions})
+    df.to_csv(output_path)
+
+
+
+# Define the scrape_data_task as a PythonOperator
+scrape_data_task = PythonOperator(
+    task_id='scrape_data_task',
+    python_callable=scrape_reliance_digital_data,
+    dag=dag,
+)
+
+
+
+# Define the send_email_task as an EmailOperator
+send_email_task = EmailOperator(
+    task_id='send_email_task',
+    to='test@gmail.com',  # Update with the desired recipient email address
+    subject='Reliance Digital Data Scraping Results',
+    html_content='The Reliance Digital data scraping has completed successfully.',
+    files=[output_path],  # Attach the scraped data CSV file to the email
+    cc=None,
+    dag=dag,
+)
+
+
+# Set the dependency between scrape_data_task and send_email_task
+scrape_data_task >> send_email_task
